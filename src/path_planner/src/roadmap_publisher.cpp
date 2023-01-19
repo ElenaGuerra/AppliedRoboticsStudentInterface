@@ -19,6 +19,12 @@ using std::placeholders::_1;
 using namespace std;
 using namespace geometry_msgs::msg;
 using namespace clipper;
+bool flagObstacles = false;
+bool flagMapborders = true;
+bool flagGates = true;
+
+int executeOnce = 0;
+graph_msgs::msg::GeometryGraph graph;
 
 class MinimalSubscriber : public rclcpp::Node
 {
@@ -28,31 +34,30 @@ public:
   MinimalSubscriber()
       : Node("roadmapPublisher")
   {
+
     /*subscription1_ = this->create_subscription<geometry_msgs::msg::Polygon>(
         "map_borders", 10, std::bind(&MinimalSubscriber::topic_callback_map_borders, this, _1));*/
     subscription2_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
         "obstacles", 10, std::bind(&MinimalSubscriber::topic_callback_obstacles, this, _1));
+    /*subscription3_ = this->create_subscription<geometry_msgs::msg::Pose>(
+        "gate_position", 10, std::bind(&MinimalSubscriber::topic_callback_gates, this, _1));*/
 
     publisher_ = this->create_publisher<graph_msgs::msg::GeometryGraph>("roadmap", 10);
   }
 
 private:
-  // TODO: work-around for missing point constructor
-  // TODO: Check if connecting two points leads to collision
   const static int NR_POINTS = 100;
-  const static int K = 5;
-  constexpr static float INFLATION_PARAMETER = 2;
+  const static int K = 20;
+  constexpr static float INFLATION_PARAMETER = 0.36; // cm
   constexpr static float SCALING_FACTOR = 100;
 
-  // START Change for real world
   geometry_msgs::msg::Polygon *map_borders;
-  // FINISH
+  geometry_msgs::msg::Point *gate;
 
   obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr obstacles;
   array<Point, NR_POINTS> pointList;
   float distance_matrix[NR_POINTS][NR_POINTS];
   int adjacency_matrix[NR_POINTS][NR_POINTS] = {0};
-  graph_msgs::msg::GeometryGraph graph;
 
   // only needed when /map_borders topic will be available.
   /*void topic_callback_map_borders(const geometry_msgs::msg::Polygon::SharedPtr msg)
@@ -60,58 +65,35 @@ private:
 
     RCLCPP_INFO(this->get_logger(), "I heard something else: ", msg);
 
-    map_borders = msg.polygon;
+    map_borders = msg->polygon;
     for (auto ptr = map_borders.points.begin(); ptr < map_borders.points.end(); ptr++)
     {
-      cout << "ptr->x" << ptr->x;
-      cout << "ptr->y" << ptr->y;
+      cout << "ptr->x" << ptr->x<< '\n';
+      cout << "ptr->y" << ptr->y<< '\n';
     }
+  }
+  void topic_callback_gates(const geometry_msgs::msg::Pose::SharedPtr msg)
+  {
+
+    RCLCPP_INFO(this->get_logger(), "I heard something about the gate: ", msg);
+
+    gate = msg->position;
+    flagGates = true;
+    cout << "gate position: " << *gate.x << " / " << *gate.y << '\n';
   }*/
+
   void topic_callback_obstacles(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
   {
     RCLCPP_INFO(this->get_logger(), "I heard: ", msg);
-
-    for (int i = 0; i < (*msg).obstacles.size(); i++)
+    flagObstacles = true;
+    executeOnce += 1;
+    if (flagObstacles == true && flagMapborders == true && flagGates == true && executeOnce == 1)
     {
-      cout << "OBSTACLE " << i << '\n';
-      for (int j = 0; j < (*msg).obstacles[i].polygon.points.size(); j++)
-      {
-        cout << "Point " << j << ": X ";
-        cout << (*msg).obstacles[i].polygon.points[j].x;
-        cout << " / Y: ";
-        cout << (*msg).obstacles[i].polygon.points[j].y << '\n';
-      }
+      roadMapMain(msg);
     }
-
-    obstacles = msg;
-    Point32 p1 = createPoint32(0, 0);
-    Point32 p2 = createPoint32(20, 0);
-    Point32 p3 = createPoint32(20, 20);
-    Point32 p4 = createPoint32(0, 20);
-    Polygon poly;
-    poly.points.push_back(p1);
-    poly.points.push_back(p2);
-    poly.points.push_back(p3);
-    poly.points.push_back(p4);
-    map_borders = &poly;
-
-    // inflateMap((-1 * INFLATION_PARAMETER) * SCALING_FACTOR);
-    //  inflateObstacles(INFLATION_PARAMETER * SCALING_FACTOR);
-    cout << '\n';
-    cout << "INFLATE MAP BORDERS" << '\n';
-    inflatePolygon((-1 * (INFLATION_PARAMETER * SCALING_FACTOR)), map_borders);
-    cout << '\n';
-    cout << "INFLATE OBSTACLES" << '\n';
-    for (int o = 0; o < (*obstacles).obstacles.size(); o++)
-    {
-      inflatePolygon((INFLATION_PARAMETER * SCALING_FACTOR), &(*obstacles).obstacles[o].polygon);
-    }
-
-    sample_points();
-    calculateDistanceMatrix();
-    calculateAdjacencyMatrix();
-    createGraph();
+    logResult();
     RCLCPP_INFO(this->get_logger(), "Publishing: '%s'");
+    cout << "Iteration: " << executeOnce << '\n';
     publisher_->publish(graph);
   }
   void sample_points()
@@ -121,27 +103,31 @@ private:
     /*(map_borders->points).sort([](const Point &f, const Point &s)
                              { return f.x < s.x; });*/
 
+    vector<Point32> copyMapBorder = map_borders->points;
     std::sort(
-        (map_borders->points).begin(),
-        (map_borders->points).end(),
+        copyMapBorder.begin(),
+        copyMapBorder.end(),
         [](const Point32 &f, const Point32 &s)
         { return f.x < s.x; });
 
-    float min_x_value = (map_borders->points).front().x;
-    float max_x_value = (map_borders->points).back().x;
+    float min_x_value = copyMapBorder.front().x;
+    float max_x_value = copyMapBorder.back().x;
+
+    cout << "MIN X VALUE: " << min_x_value << " / MAX X VALUE: " << max_x_value << '\n';
     /*(map_borders->points).sort([](const Point &f, const Point &s)
                                { return f.y < s.y; });*/
 
     std::sort(
-        (map_borders->points).begin(),
-        (map_borders->points).end(),
+        copyMapBorder.begin(),
+        copyMapBorder.end(),
         [](const Point32 &f, const Point32 &s)
         { return f.y < s.y; });
-    float min_y_value = (map_borders->points).front().y;
-    float max_y_value = (map_borders->points).back().y;
+    float min_y_value = copyMapBorder.front().y;
+    float max_y_value = copyMapBorder.back().y;
+    cout << "MIN Y VALUE: " << min_y_value << " / MAX Y VALUE: " << max_y_value << '\n';
 
     // generate #NR_POINTS Points
-    for (int i = 0; i < NR_POINTS; i++)
+    for (int i = 0; i < (NR_POINTS - 1); i++)
     {
       // generate random point within map borders
       const int range_from_x = min_x_value;
@@ -159,13 +145,24 @@ private:
       float random_y = distr_y(generator_y);
 
       Point randomPoint = createPoint(random_x, random_y);
-
-      std::cout << "random_x: " << random_x << '\n';
-      std::cout << "random_y: " << random_y << '\n';
+      std::cout << "Point ID: " << i << '\n';
+      std::cout << "random_x: " << randomPoint.x << '\n';
+      std::cout << "random_y: " << randomPoint.y << '\n';
 
       // make sure the point is in Cfree
-      bool reinitialisePoint = checkIfInObstacle(randomPoint);
-      if (reinitialisePoint == true)
+
+      bool pointInObstacle = checkIfInObstacle(randomPoint);
+      bool pointOutsideMap = checkIfOutsideMap(randomPoint);
+      if (pointOutsideMap == true)
+      {
+        cout << "point is outside map, not ok" << '\n';
+      }
+      if (pointInObstacle == true)
+      {
+        cout << "point is in obstacle, not ok" << '\n';
+      }
+
+      if (pointInObstacle == true || pointOutsideMap == true) // || pointOutsideMap == true
       {
         i--;
         cout << "not in c free." << '\n';
@@ -175,9 +172,18 @@ private:
         pointList[i] = randomPoint;
       }
     }
+    // add gate to PointList
+    pointList[NR_POINTS - 1] = *gate;
+    cout << "GATE: " << pointList[NR_POINTS].x << " / " << pointList[NR_POINTS].y << '\n';
+    // add evader position to list
+    /*pointList[NR_POINTS] = *evader_pose;
+
+    // add pursuer position to list
+    pointList[NR_POINTS] = *pursuer_pose;
+    */
   }
 
-  geometry_msgs::msg::Point createPoint(int x, int y)
+  geometry_msgs::msg::Point createPoint(float x, float y)
   {
     geometry_msgs::msg::Point pnt;
     pnt.x = x;
@@ -186,7 +192,7 @@ private:
 
     return pnt;
   }
-  geometry_msgs::msg::Point32 createPoint32(int x, int y)
+  geometry_msgs::msg::Point32 createPoint32(float x, float y)
   {
     geometry_msgs::msg::Point32 pnt32;
     pnt32.x = x;
@@ -204,8 +210,18 @@ private:
 
     return pnt;
   }
+
+  bool checkIfOutsideMap(Point randomPoint)
+  {
+    int n = (*map_borders).points.size();
+    bool pointIsOutsideMap = !(rayCastingAlgorithm((*map_borders).points, n, randomPoint));
+
+    return pointIsOutsideMap;
+  }
+
   bool checkIfInObstacle(Point randomPoint)
   {
+
     bool collisionDetected = false;
     // obstacles, array of polygons.
     for (obstacles_msgs::msg::ObstacleMsg obstacle : ((*obstacles).obstacles))
@@ -213,26 +229,28 @@ private:
       if (obstacle.radius != 0)
       {
         // check if point is in circle
-        cout << "Obstacle is circle" << '\n';
+        // cout << "Obstacle is circle" << '\n';
         Point center_point = point32ToPoint(obstacle.polygon.points[0]);
         float distance_p2p = sqrt(pow(abs(center_point.x - randomPoint.x), 2) + pow(abs(center_point.y - randomPoint.y), 2));
         if (distance_p2p <= obstacle.radius)
         {
-          cout << "Point is inside circle." << '\n';
+          // cout << "Point is inside circle." << '\n';
           collisionDetected = true;
         }
         continue;
       }
       else if (obstacle.radius == 0)
       {
+
         // check if point is in polygon
-        cout << "Obstacle is polygon" << '\n';
+        // cout << "Obstacle is polygon" << '\n';
         int n = obstacle.polygon.points.size();
+
         collisionDetected = rayCastingAlgorithm(obstacle.polygon.points, n, randomPoint);
       }
       if (collisionDetected == true)
       {
-        cout << " Collision detected" << '\n';
+        // cout << " Collision detected" << '\n';
         break;
       }
     }
@@ -247,12 +265,8 @@ private:
       polygon.push_back(point32ToPoint(point32));
     }
 
-    if (checkInside(polygon, n, p))
-      cout << "Point is inside polygon." << '\n';
-    else
-      cout << "Point is outside polygon." << '\n';
-
-    return checkInside(polygon, n, p);
+    bool pointIsInside = checkInside(polygon, n, p);
+    return pointIsInside;
   }
 
   void calculateDistanceMatrix()
@@ -263,6 +277,7 @@ private:
       for (int j = 0; j < pointList.size(); j++)
       {
         Point point_j = pointList[j];
+
         float delta_x = abs(point_i.x - point_j.x);
         float delta_y = abs(point_i.y - point_j.y);
         float delta_x_sq = pow(delta_x, 2);
@@ -289,14 +304,13 @@ private:
     }
 
     // loop over each row of distance matrix to find each point's k nearest neighbors
-    int adjacency_matrix[pointList.size()][pointList.size()] = {0};
+    // int adjacency_matrix[pointList.size()][pointList.size()] = {0};
     for (int i = 0; i < pointList.size(); i++)
     {
       array<int, K> nearest_neighbors;
       float current_row[pointList.size()];
       for (int j = 0; j < pointList.size(); j++)
       {
-
         current_row[j] = distance_matrix[i][j];
       }
 
@@ -316,7 +330,7 @@ private:
           bool found = (std::find(used_points_indices.begin(), used_points_indices.end(), l) != used_points_indices.end());
           if ((distance_matrix[i][l] == current_distance) && (found == false))
           {
-            cout << "FOUND THE NEIGHBOR: " << l << ", K = " << k << '\n';
+            // cout << "FOUND THE NEIGHBOR: " << l << ", K = " << k << '\n';
             index_nearest_neighbor = l;
           }
         }
@@ -325,18 +339,20 @@ private:
       }
 
       // test: print nearest points.
-      cout << "Nearest Neighbours Point " << i << ": " << '\n';
+      // cout << "Nearest Neighbours Point " << i << ": " << '\n';
       for (int test3 = 0; test3 < nearest_neighbors.size(); test3++)
       {
-        cout << nearest_neighbors[test3] << '\n';
+        // cout << nearest_neighbors[test3] << '\n';
       }
       cout << '\n';
 
       // TADA: in nearest_neighbors sind alle punkte die am nächsten zu pointList[i] sind.
       for (int m = 0; m < pointList.size(); m++)
       {
+
         bool found = (std::find(nearest_neighbors.begin(), nearest_neighbors.end(), m) != nearest_neighbors.end());
-        if (found == true)
+        bool pathIsCollisionFree = checkPathIsCollisionFree(i, m);
+        if ((found == true) && (i != m) && (pathIsCollisionFree))
         {
           adjacency_matrix[i][m] = 1;
           adjacency_matrix[m][i] = 1;
@@ -356,6 +372,8 @@ private:
     // create edges
     for (int i = 0; i < NR_POINTS; i++)
     {
+      graph_msgs::msg::Edges edge;
+      graph.edges.push_back(edge);
       for (int j = 0; j < NR_POINTS; j++)
       {
         if (adjacency_matrix[i][j] == 1)
@@ -364,6 +382,42 @@ private:
         }
       }
     }
+  }
+
+  void logResult()
+  {
+    // print adjacency matrix
+    cout << "A: " << '\n';
+    cout << "[";
+    for (int i = 0; i < NR_POINTS; i++)
+    {
+      for (int j = 0; j < NR_POINTS; j++)
+      {
+        cout << adjacency_matrix[i][j] << " ";
+      }
+      cout << ";";
+    }
+    cout << "]";
+    cout << '\n';
+    // print x
+    cout << "X: " << '\n';
+    cout << "[";
+    for (int i = 0; i < pointList.size(); i++)
+    {
+      cout << pointList[i].x << " ";
+    }
+    cout << "]";
+    cout << '\n';
+
+    // print y
+    cout << "Y: " << '\n';
+    cout << "[";
+    for (int i = 0; i < pointList.size(); i++)
+    {
+      cout << pointList[i].y << " ";
+    }
+    cout << "]";
+    cout << '\n';
   }
 
   /* (copied)*/
@@ -383,7 +437,7 @@ private:
 
   int direction(Point a, Point b, Point c)
   {
-    int val = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
+    double val = (b.y - a.y) * (c.x - b.x) - (b.x - a.x) * (c.y - b.y);
 
     if (val == 0)
 
@@ -435,10 +489,14 @@ private:
 
     // When polygon has less than 3 edge, it is not polygon
     if (n < 3)
+    {
+
+      cout << "SOMETHING WENT WRONG WITH POLYGON CONVERSION" << '\n';
       return false;
+    }
 
     // Create a point at infinity, y is same as point p
-    line exline = {p, createPoint(9999, p.y)};
+    line exline = {p, createPoint(9999.0, p.y)};
     int count = 0;
     int i = 0;
     do
@@ -452,7 +510,12 @@ private:
 
         // If side is intersects exline
         if (direction(side.p1, p, side.p2) == 0)
+        {
+          cout << "P " << p.x << " / " << p.y << " is on Line:";
+          cout << side.p1.x << " / " << side.p1.y << " -> " << side.p2.x << " / " << side.p2.y << '\n';
           return onLine(side, p);
+        }
+
         count++;
       }
       i = (i + 1) % n;
@@ -460,6 +523,37 @@ private:
 
     // When count is odd
     return count & 1;
+  }
+
+  bool checkPathIsCollisionFree(int k, int m)
+  {
+
+    bool collisionFree = true;
+    line pathLine = {pointList[k], pointList[m]};
+    for (obstacles_msgs::msg::ObstacleMsg obstacle : ((*obstacles).obstacles))
+    {
+      vector<Point> polygon;
+      for (Point32 point32 : obstacle.polygon.points)
+      {
+        polygon.push_back(point32ToPoint(point32));
+      }
+      int n = polygon.size();
+      // cout << "CHECKPATH COLLISION FREE" << '\n';
+      int i = 0;
+      do
+      {
+        line side = {polygon[i], polygon[(i + 1) % n]};
+        if (isIntersect(side, pathLine))
+        {
+          // cout << " IS INTERSECT!!" << '\n';
+          collisionFree = false;
+          break;
+        }
+        i = (i + 1) % n;
+      } while (i != 0);
+    }
+
+    return collisionFree;
   }
 
   void inflatePolygon(double delta, Polygon *polygon)
@@ -520,15 +614,69 @@ private:
     return descaledPoints32;
   }
 
+  void roadMapMain(obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
+  {
+    for (int i = 0; i < (*msg).obstacles.size(); i++)
+    {
+      cout << "OBSTACLE " << i << '\n';
+      for (int j = 0; j < (*msg).obstacles[i].polygon.points.size(); j++)
+      {
+        cout << "Point " << j << ": X ";
+        cout << (*msg).obstacles[i].polygon.points[j].x;
+        cout << " / Y: ";
+        cout << (*msg).obstacles[i].polygon.points[j].y << '\n';
+      }
+    }
+
+    obstacles = msg;
+    Point32 p1 = createPoint32(0, 0);
+    Point32 p2 = createPoint32(10, 0);
+    Point32 p3 = createPoint32(10, 10);
+    Point32 p4 = createPoint32(0, 10);
+    Polygon poly;
+    poly.points.push_back(p1);
+    poly.points.push_back(p2);
+    poly.points.push_back(p3);
+    poly.points.push_back(p4);
+    map_borders = &poly;
+
+    Point pointGate = createPoint(0, 2);
+    gate = &pointGate;
+    cout << "Poiint Gate: " << (*gate).x << " / " << (*gate).y << '\n';
+
+    cout << '\n';
+    cout << "INFLATE MAP BORDERS" << '\n';
+    inflatePolygon((-1 * (INFLATION_PARAMETER * SCALING_FACTOR)), map_borders);
+    cout << '\n';
+    cout << "INFLATE OBSTACLES" << '\n';
+    for (int o = 0; o < (*obstacles).obstacles.size(); o++)
+    {
+      inflatePolygon((INFLATION_PARAMETER * SCALING_FACTOR), &(*obstacles).obstacles[o].polygon);
+    }
+
+    sample_points();
+    calculateDistanceMatrix();
+    calculateAdjacencyMatrix();
+    createGraph();
+    // logResult();
+  }
+
   rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr subscription1_;
   rclcpp::Subscription<obstacles_msgs::msg::ObstacleArrayMsg>::SharedPtr subscription2_;
+  rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr subscription3_;
   rclcpp::Publisher<graph_msgs::msg::GeometryGraph>::SharedPtr publisher_;
 };
 
 int main(int argc, char *argv[])
 {
   rclcpp::init(argc, argv);
+
   rclcpp::spin(std::make_shared<MinimalSubscriber>());
+  if (flagObstacles == true && flagMapborders == true)
+  {
+    cout << "HOLALLALALLALA" << '\n';
+  }
+
   rclcpp::shutdown();
   return 0;
 }
