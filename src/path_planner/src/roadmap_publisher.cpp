@@ -7,6 +7,7 @@
 #include "geometry_msgs/msg/point32.hpp"
 #include "geometry_msgs/msg/polygon.hpp"
 #include "geometry_msgs/msg/polygon_stamped.hpp"
+#include "geometry_msgs/msg/pose_array.hpp"
 #include "obstacles_msgs/msg/obstacle_array_msg.hpp"
 #include "obstacles_msgs/msg/obstacle_msg.hpp"
 #include "std_msgs/msg/header.hpp"
@@ -20,10 +21,10 @@ using namespace std;
 using namespace geometry_msgs::msg;
 using namespace clipper;
 bool flagObstacles = false;
-bool flagMapborders = true;
-bool flagGates = true;
+bool flagMapborders = false;
+bool flagGates = false;
+bool executeOnce = true;
 
-int executeOnce = 0;
 graph_msgs::msg::GeometryGraph graph;
 
 class MinimalSubscriber : public rclcpp::Node
@@ -34,13 +35,13 @@ public:
   MinimalSubscriber()
       : Node("roadmapPublisher")
   {
-
-    /*subscription1_ = this->create_subscription<geometry_msgs::msg::Polygon>(
-        "map_borders", 10, std::bind(&MinimalSubscriber::topic_callback_map_borders, this, _1));*/
+    auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_sensor_data);
+    subscription1_ = this->create_subscription<geometry_msgs::msg::Polygon>(
+        "map_borders", qos, std::bind(&MinimalSubscriber::topic_callback_map_borders, this, _1));
     subscription2_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
-        "obstacles", 10, std::bind(&MinimalSubscriber::topic_callback_obstacles, this, _1));
-    /*subscription3_ = this->create_subscription<geometry_msgs::msg::Pose>(
-        "gate_position", 10, std::bind(&MinimalSubscriber::topic_callback_gates, this, _1));*/
+        "obstacles", qos, std::bind(&MinimalSubscriber::topic_callback_obstacles, this, _1));
+    subscription3_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
+        "gate_position", qos, std::bind(&MinimalSubscriber::topic_callback_gates, this, _1));
 
     publisher_ = this->create_publisher<graph_msgs::msg::GeometryGraph>("roadmap", 10);
   }
@@ -51,8 +52,8 @@ private:
   constexpr static float INFLATION_PARAMETER = 0.36; // cm
   constexpr static float SCALING_FACTOR = 100;
 
-  geometry_msgs::msg::Polygon *map_borders;
-  geometry_msgs::msg::Point *gate;
+  geometry_msgs::msg::Polygon::SharedPtr map_borders;
+  geometry_msgs::msg::PoseArray::SharedPtr gates;
 
   obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr obstacles;
   array<Point, NR_POINTS> pointList;
@@ -60,38 +61,46 @@ private:
   int adjacency_matrix[NR_POINTS][NR_POINTS] = {0};
 
   // only needed when /map_borders topic will be available.
-  /*void topic_callback_map_borders(const geometry_msgs::msg::Polygon::SharedPtr msg)
+  void topic_callback_map_borders(const geometry_msgs::msg::Polygon::SharedPtr msg)
   {
 
     RCLCPP_INFO(this->get_logger(), "I heard something else: ", msg);
 
-    map_borders = msg->polygon;
-    for (auto ptr = map_borders.points.begin(); ptr < map_borders.points.end(); ptr++)
+    // Polygon borders_dummy = *msg;
+    map_borders = msg;
+    for (auto ptr = (*map_borders).points.begin(); ptr < (*map_borders).points.end(); ptr++)
     {
-      cout << "ptr->x" << ptr->x<< '\n';
-      cout << "ptr->y" << ptr->y<< '\n';
+      // cout << "ptr->x " << ptr->x << " / " << ptr->y << '\n';
     }
+    flagMapborders = true;
   }
-  void topic_callback_gates(const geometry_msgs::msg::Pose::SharedPtr msg)
+  void topic_callback_gates(const geometry_msgs::msg::PoseArray::SharedPtr msg)
   {
 
-    RCLCPP_INFO(this->get_logger(), "I heard something about the gate: ", msg);
+    RCLCPP_INFO(this->get_logger(), "I heard something about the gates.");
 
-    gate = msg->position;
+    gates = msg;
     flagGates = true;
-    cout << "gate position: " << *gate.x << " / " << *gate.y << '\n';
-  }*/
+    cout << "gate positions: " << '\n';
+    for (int i = 0; i < gates->poses.size(); i++)
+    {
+      cout << gates->poses[i].position.x << " / " << gates->poses[i].position.y << '\n';
+    }
+  }
 
   void topic_callback_obstacles(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
   {
     RCLCPP_INFO(this->get_logger(), "I heard: ", msg);
     flagObstacles = true;
-    executeOnce += 1;
-    if (flagObstacles == true && flagMapborders == true && flagGates == true && executeOnce == 1)
+
+    if (flagObstacles == true && flagMapborders == true && flagGates == true && executeOnce == true)
     {
+      // TODO: change executeOnce logic
       roadMapMain(msg);
+      logResult();
+      executeOnce = false;
     }
-    logResult();
+    // logResult();
     RCLCPP_INFO(this->get_logger(), "Publishing: '%s'");
     cout << "Iteration: " << executeOnce << '\n';
     publisher_->publish(graph);
@@ -99,9 +108,7 @@ private:
   void sample_points()
   {
 
-    // find min/max x/y values, assuming the map is a rectangle without rotation
-    /*(map_borders->points).sort([](const Point &f, const Point &s)
-                             { return f.x < s.x; });*/
+    // find min/max x/y values, assuming the map is a rectangle
 
     vector<Point32> copyMapBorder = map_borders->points;
     std::sort(
@@ -114,8 +121,6 @@ private:
     float max_x_value = copyMapBorder.back().x;
 
     cout << "MIN X VALUE: " << min_x_value << " / MAX X VALUE: " << max_x_value << '\n';
-    /*(map_borders->points).sort([](const Point &f, const Point &s)
-                               { return f.y < s.y; });*/
 
     std::sort(
         copyMapBorder.begin(),
@@ -127,7 +132,7 @@ private:
     cout << "MIN Y VALUE: " << min_y_value << " / MAX Y VALUE: " << max_y_value << '\n';
 
     // generate #NR_POINTS Points
-    for (int i = 0; i < (NR_POINTS - 1); i++)
+    for (int i = 0; i < (NR_POINTS - gates->poses.size()); i++)
     {
       // generate random point within map borders
       const int range_from_x = min_x_value;
@@ -162,7 +167,7 @@ private:
         cout << "point is in obstacle, not ok" << '\n';
       }
 
-      if (pointInObstacle == true || pointOutsideMap == true) // || pointOutsideMap == true
+      if (pointInObstacle == true || pointOutsideMap == true) 
       {
         i--;
         cout << "not in c free." << '\n';
@@ -173,9 +178,14 @@ private:
       }
     }
     // add gate to PointList
-    pointList[NR_POINTS - 1] = *gate;
-    cout << "GATE: " << pointList[NR_POINTS].x << " / " << pointList[NR_POINTS].y << '\n';
-    // add evader position to list
+    for (int g = 0; g < gates->poses.size(); g++)
+    {
+      Point gate_point = createPoint(gates->poses[g].position.x, gates->poses[g].position.y);
+      pointList[NR_POINTS - (g + 1)] = gate_point;
+    }
+
+    // cout << "GATE: " << pointList[NR_POINTS].x << " / " << pointList[NR_POINTS].y << '\n';
+    //  add evader position to list
     /*pointList[NR_POINTS] = *evader_pose;
 
     // add pursuer position to list
@@ -638,15 +648,15 @@ private:
     poly.points.push_back(p2);
     poly.points.push_back(p3);
     poly.points.push_back(p4);
-    map_borders = &poly;
+    // map_borders = &poly;
 
     Point pointGate = createPoint(0, 2);
-    gate = &pointGate;
-    cout << "Poiint Gate: " << (*gate).x << " / " << (*gate).y << '\n';
+    // gate = &pointGate;
+    // cout << "Point Gate: " << (*gate).x << " / " << (*gate).y << '\n';
 
     cout << '\n';
     cout << "INFLATE MAP BORDERS" << '\n';
-    inflatePolygon((-1 * (INFLATION_PARAMETER * SCALING_FACTOR)), map_borders);
+    inflatePolygon((-1 * (INFLATION_PARAMETER * SCALING_FACTOR)), map_borders.get());
     cout << '\n';
     cout << "INFLATE OBSTACLES" << '\n';
     for (int o = 0; o < (*obstacles).obstacles.size(); o++)
@@ -663,14 +673,14 @@ private:
 
   rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr subscription1_;
   rclcpp::Subscription<obstacles_msgs::msg::ObstacleArrayMsg>::SharedPtr subscription2_;
-  rclcpp::Subscription<geometry_msgs::msg::Pose>::SharedPtr subscription3_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr subscription3_;
   rclcpp::Publisher<graph_msgs::msg::GeometryGraph>::SharedPtr publisher_;
 };
 
 int main(int argc, char *argv[])
 {
   rclcpp::init(argc, argv);
-
+  cout << "START" << '\n';
   rclcpp::spin(std::make_shared<MinimalSubscriber>());
   if (flagObstacles == true && flagMapborders == true)
   {
