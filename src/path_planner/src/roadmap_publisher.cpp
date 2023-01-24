@@ -8,12 +8,13 @@
 #include "geometry_msgs/msg/polygon.hpp"
 #include "geometry_msgs/msg/polygon_stamped.hpp"
 #include "geometry_msgs/msg/pose_array.hpp"
+#include "geometry_msgs/msg/transform_stamped.hpp"
 #include "obstacles_msgs/msg/obstacle_array_msg.hpp"
 #include "obstacles_msgs/msg/obstacle_msg.hpp"
 #include "std_msgs/msg/header.hpp"
 #include "graph_msgs/msg/geometry_graph.hpp"
 #include "clipper_library/library_header.h"
-
+#include "tf2_msgs/msg/tf_message.h"
 #include <list>
 
 using std::placeholders::_1;
@@ -23,6 +24,9 @@ using namespace clipper;
 bool flagObstacles = false;
 bool flagMapborders = false;
 bool flagGates = false;
+bool flagPositionShelfino1 = false;
+bool flagPositionShelfino2 = false;
+bool graph_initialized = false;
 bool executeOnce = true;
 
 graph_msgs::msg::GeometryGraph graph;
@@ -42,31 +46,35 @@ public:
         "obstacles", qos, std::bind(&MinimalSubscriber::topic_callback_obstacles, this, _1));
     subscription3_ = this->create_subscription<geometry_msgs::msg::PoseArray>(
         "gate_position", qos, std::bind(&MinimalSubscriber::topic_callback_gates, this, _1));
+    subscription4_ = this->create_subscription<geometry_msgs::msg::TransformStamped>(
+        "shelfino1/transform", qos, std::bind(&MinimalSubscriber::topic_callback_position_1, this, _1));
+    subscription5_ = this->create_subscription<geometry_msgs::msg::TransformStamped>(
+        "shelfino2/transform", qos, std::bind(&MinimalSubscriber::topic_callback_position_2, this, _1));
 
     publisher_ = this->create_publisher<graph_msgs::msg::GeometryGraph>("roadmap", 10);
   }
 
 private:
-  const static int NR_POINTS = 100;
+  const static int NR_POINTS = 300;
   const static int K = 20;
   constexpr static float INFLATION_PARAMETER = 0.36; // cm
   constexpr static float SCALING_FACTOR = 100;
 
   geometry_msgs::msg::Polygon::SharedPtr map_borders;
   geometry_msgs::msg::PoseArray::SharedPtr gates;
+  Point shelfino_position_1;
+  Point shelfino_position_2;
 
   obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr obstacles;
   array<Point, NR_POINTS> pointList;
   float distance_matrix[NR_POINTS][NR_POINTS];
   int adjacency_matrix[NR_POINTS][NR_POINTS] = {0};
 
-  // only needed when /map_borders topic will be available.
   void topic_callback_map_borders(const geometry_msgs::msg::Polygon::SharedPtr msg)
   {
 
     RCLCPP_INFO(this->get_logger(), "I heard something else: ", msg);
 
-    // Polygon borders_dummy = *msg;
     map_borders = msg;
     for (auto ptr = (*map_borders).points.begin(); ptr < (*map_borders).points.end(); ptr++)
     {
@@ -88,22 +96,42 @@ private:
     }
   }
 
-  void topic_callback_obstacles(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
+  void topic_callback_position_1(const geometry_msgs::msg::TransformStamped::SharedPtr msg)
   {
-    RCLCPP_INFO(this->get_logger(), "I heard: ", msg);
+    RCLCPP_INFO(this->get_logger(), "I heard something about position 1.");
+    shelfino_position_1 = createPoint(msg->transform.translation.x,msg->transform.translation.y);
+    cout << "Position 1: " << shelfino_position_1.x << " / " << shelfino_position_1.y << '\n';
+    flagPositionShelfino1 = true;
+  }
+  void topic_callback_position_2(const geometry_msgs::msg::TransformStamped::SharedPtr msg)
+  {
+    RCLCPP_INFO(this->get_logger(), "I heard something about position 2.");
+    shelfino_position_2 = createPoint(msg->transform.translation.x,msg->transform.translation.y);
+    cout << "Position 2: " << shelfino_position_2.x << " / " << shelfino_position_2.y << '\n';
+    flagPositionShelfino2 = true;
+  }
+
+  // kind of main method :)
+  void
+  topic_callback_obstacles(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
+  {
+    RCLCPP_INFO(this->get_logger(), "I heard obstacles: ", msg);
     flagObstacles = true;
 
-    if (flagObstacles == true && flagMapborders == true && flagGates == true && executeOnce == true)
+    if (flagObstacles == true && flagMapborders == true && flagGates == true && flagPositionShelfino1 == true && flagPositionShelfino2 == true && executeOnce == true)
     {
-      // TODO: change executeOnce logic
       roadMapMain(msg);
       logResult();
       executeOnce = false;
+      graph_initialized = true;
     }
     // logResult();
-    RCLCPP_INFO(this->get_logger(), "Publishing: '%s'");
+    if (graph_initialized == true) {
+      RCLCPP_INFO(this->get_logger(), "Publishing: '%s'");
     cout << "Iteration: " << executeOnce << '\n';
     publisher_->publish(graph);
+    }
+    
   }
   void sample_points()
   {
@@ -132,7 +160,7 @@ private:
     cout << "MIN Y VALUE: " << min_y_value << " / MAX Y VALUE: " << max_y_value << '\n';
 
     // generate #NR_POINTS Points
-    for (int i = 0; i < (NR_POINTS - gates->poses.size()); i++)
+    for (int i = 0; i < (NR_POINTS - gates->poses.size() - 2); i++)
     {
       // generate random point within map borders
       const int range_from_x = min_x_value;
@@ -167,7 +195,7 @@ private:
         cout << "point is in obstacle, not ok" << '\n';
       }
 
-      if (pointInObstacle == true || pointOutsideMap == true) 
+      if (pointInObstacle == true || pointOutsideMap == true)
       {
         i--;
         cout << "not in c free." << '\n';
@@ -181,16 +209,15 @@ private:
     for (int g = 0; g < gates->poses.size(); g++)
     {
       Point gate_point = createPoint(gates->poses[g].position.x, gates->poses[g].position.y);
-      pointList[NR_POINTS - (g + 1)] = gate_point;
+      pointList[NR_POINTS - 2 - (g + 1)] = gate_point;
     }
-
-    // cout << "GATE: " << pointList[NR_POINTS].x << " / " << pointList[NR_POINTS].y << '\n';
+    
     //  add evader position to list
-    /*pointList[NR_POINTS] = *evader_pose;
+    pointList[NR_POINTS-2] = shelfino_position_1;
 
     // add pursuer position to list
-    pointList[NR_POINTS] = *pursuer_pose;
-    */
+    pointList[NR_POINTS-1] = shelfino_position_2;
+    
   }
 
   geometry_msgs::msg::Point createPoint(float x, float y)
@@ -639,7 +666,7 @@ private:
     }
 
     obstacles = msg;
-    Point32 p1 = createPoint32(0, 0);
+    /*Point32 p1 = createPoint32(0, 0);
     Point32 p2 = createPoint32(10, 0);
     Point32 p3 = createPoint32(10, 10);
     Point32 p4 = createPoint32(0, 10);
@@ -648,7 +675,7 @@ private:
     poly.points.push_back(p2);
     poly.points.push_back(p3);
     poly.points.push_back(p4);
-    // map_borders = &poly;
+    map_borders = &poly;*/
 
     Point pointGate = createPoint(0, 2);
     // gate = &pointGate;
@@ -674,6 +701,8 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr subscription1_;
   rclcpp::Subscription<obstacles_msgs::msg::ObstacleArrayMsg>::SharedPtr subscription2_;
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr subscription3_;
+  rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr subscription4_;
+  rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr subscription5_;
   rclcpp::Publisher<graph_msgs::msg::GeometryGraph>::SharedPtr publisher_;
 };
 
