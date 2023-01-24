@@ -2,7 +2,7 @@
 #include <random>
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "nav_msgs/msg/path.hpp"
+//#include "nav_msgs/msg/path.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/point32.hpp"
 #include "geometry_msgs/msg/polygon.hpp"
@@ -14,7 +14,7 @@
 #include "std_msgs/msg/header.hpp"
 #include "graph_msgs/msg/geometry_graph.hpp"
 #include "clipper_library/library_header.h"
-#include "tf2_msgs/msg/tf_message.h"
+//#include "tf2_msgs/msg/tf_message.h"
 #include <list>
 
 using std::placeholders::_1;
