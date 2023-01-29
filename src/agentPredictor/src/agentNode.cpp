@@ -68,7 +68,7 @@ public:
 		sub_gates = this->create_subscription<geometry_msgs::msg::PoseArray>(
 				"gate_position", qos, std::bind(&AgentNode::retrieve_gates, this, _1));
 
-		publisher_ = this->create_publisher<nav_msgs::msg::Path>(pers_topic.append("/plan"), 10);
+		publisher_ = this->create_publisher<nav_msgs::msg::Path>("shelfino1/plan", 10);
 	}
 
 private:
@@ -89,10 +89,10 @@ private:
 		position.y = t->transform.translation.y;
 
 		if(FLAG_PREDICTOR_ACTIVE){
-			RCLCPP_INFO(this->get_logger(), "[AgentNode] Gonna update the position of evader");
+			RCLCPP_DEBUG(this->get_logger(), "[AgentNode] Updating the position of evader");
 			predictor_->updateCurrentPosition(position);
 			if(!FLAG_EVADER_LOCALIZED){
-				RCLCPP_INFO(this->get_logger(), "[AgentNode] Gonna find the first node");
+				RCLCPP_INFO(this->get_logger(), "[AgentNode] Searching closest node the evader (first node)");
 				predictor_->findEvaderFirstNode();
 				FLAG_EVADER_LOCALIZED = true;
 
@@ -134,31 +134,37 @@ private:
 
 	void timer_firstPrediction(){
 
-		RCLCPP_INFO(this->get_logger(), "[AgentNode] l137");
 		// Track the next node for the first time
 		uint32_t expectedNode = predictor_->predictNextNode();
 		predictor_->setExpectedNodeId(expectedNode);
 
 		// Cancel this timer
-		RCLCPP_INFO(this->get_logger(), "[AgentNode] l143");
 		one_time_timer_->cancel();
-		periodic_timer_ = this->create_wall_timer(3s, std::bind(&AgentNode::timer_updatePrediction, this));
+		periodic_timer_ = this->create_wall_timer(1s, std::bind(&AgentNode::timer_updatePrediction, this));
 
 		// Find the targetGate
-		RCLCPP_INFO(this->get_logger(), "[AgentNode] l148");
 		FLAG_TARGET_GATE_PREDICTED = predictor_->predictTargetGate();
+		RCLCPP_INFO(this->get_logger(), "[AgentNode] The result from trying to find the targetGate during the first try was sucess=%s\n", FLAG_TARGET_GATE_PREDICTED ? "true" : "false");
 		plan_interception();
-		RCLCPP_INFO(this->get_logger(), "[AgentNode] 151");
 
 	}
 
 	void timer_updatePrediction(){
+		RCLCPP_INFO(this->get_logger(), "[AgentNode] Realizing periodical check of the prediction");
+
 		uint32_t currentTarget = predictor_->getExpectedNodeId();
-	  uint32_t expectedTarget = predictor_->reviewPrediction();
-		if(!FLAG_TARGET_GATE_PREDICTED || currentTarget!=expectedTarget){
-			RCLCPP_WARN(this->get_logger(), "[AgentNode] A new path has been requested!");
+	  uint32_t reviewedTarget = predictor_->reviewPrediction();
+		if(!FLAG_TARGET_GATE_PREDICTED || currentTarget!=reviewedTarget){
+			RCLCPP_WARN(this->get_logger(), "[AgentNode] It's necessary to review the path to follow!");
+			if(currentTarget!=reviewedTarget){
+				RCLCPP_WARN(this->get_logger(), "[AgentNode] because the expected node is different");
+				RCLCPP_INFO(this->get_logger(), "[AgentNode] Before it was %u and now it is %u\n", currentTarget, reviewedTarget);
+			}
+			else{
+				RCLCPP_WARN(this->get_logger(), "[AgentNode] because we still don't have the gate");
+			}
 			FLAG_TARGET_GATE_PREDICTED = predictor_->predictTargetGate();
-			//plan_interception();
+			plan_interception();
 		}
 	}
 
@@ -189,6 +195,7 @@ private:
 		map<int, GateCandidate>::iterator it = candidates.begin();
 		for (; it != candidates.end(); it++) {
 			toReturn.push_back((it->second).id_in_roadmap);
+			RCLCPP_INFO(this->get_logger(), "[AgentNode] Adding the gate with id %u\n", (it->second).id_in_roadmap);
 	  }
 
 		return toReturn;
@@ -232,7 +239,7 @@ private:
 		using FollowPath = nav2_msgs::action::FollowPath;
 		rclcpp_action::Client<FollowPath>::SharedPtr client_ptr_;
 
-		client_ptr_ = rclcpp_action::create_client<FollowPath>(this,pers_topic.append("/follow_path"));
+		client_ptr_ = rclcpp_action::create_client<FollowPath>(this,"shelfino1/follow_path");
 		if (!client_ptr_->wait_for_action_server()) {
 			RCLCPP_ERROR(this->get_logger(), "[AgentNode] Action server not available after waiting");
 		  rclcpp::shutdown();
@@ -245,14 +252,15 @@ private:
 		goal_msg.path = path_msg;
 		goal_msg.controller_id = "FollowPath";
 
-		client_ptr_->async_send_goal(goal_msg);
 		publisher_->publish(path_msg);
+		client_ptr_->async_send_goal(goal_msg);
 
 		// Retrying
 		sleep(0.5);
-		client_ptr_->async_send_goal(goal_msg);
 		publisher_->publish(path_msg);
+		client_ptr_->async_send_goal(goal_msg);
 
+		RCLCPP_INFO(this->get_logger(), "[AgentNode] All requests are done");
 
 	}
 
@@ -263,13 +271,6 @@ private:
 	bool FLAG_PREDICTOR_ACTIVE = false;
 	bool FLAG_EVADER_LOCALIZED = false;
 	bool FLAG_TARGET_GATE_PREDICTED = false;
-
-	string evad_topic = "shelfino1";
-	string pers_topic = "shelfino2";
-
-	/*
-		string evad_topic = "/shelfino1";
-		string pers_topic = "/shelfino2";*/
 
 	Dubins *dubins_;
 	Predictor *predictor_;

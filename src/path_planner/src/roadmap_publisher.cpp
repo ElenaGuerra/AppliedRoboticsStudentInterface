@@ -2,7 +2,6 @@
 #include <random>
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
-#include "nav_msgs/msg/path.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/point32.hpp"
 #include "geometry_msgs/msg/polygon.hpp"
@@ -14,7 +13,6 @@
 #include "std_msgs/msg/header.hpp"
 #include "graph_msgs/msg/geometry_graph.hpp"
 #include "clipper_library/library_header.h"
-#include "tf2_msgs/msg/tf_message.h"
 #include <list>
 
 using std::placeholders::_1;
@@ -90,7 +88,7 @@ private:
     gates = msg;
     flagGates = true;
     cout << "gate positions: " << '\n';
-    for (int i = 0; i < gates->poses.size(); i++)
+    for (uint32_t i = 0; i < gates->poses.size(); i++)
     {
       cout << gates->poses[i].position.x << " / " << gates->poses[i].position.y << '\n';
     }
@@ -131,7 +129,7 @@ private:
     cout << "Iteration: " << executeOnce << '\n';
     publisher_->publish(graph);
     }
-    
+
   }
   void sample_points()
   {
@@ -206,18 +204,18 @@ private:
       }
     }
     // add gate to PointList
-    for (int g = 0; g < gates->poses.size(); g++)
+    for (uint32_t g = 0; g < gates->poses.size(); g++)
     {
       Point gate_point = createPoint(gates->poses[g].position.x, gates->poses[g].position.y);
       pointList[NR_POINTS - 2 - (g + 1)] = gate_point;
     }
-    
+
     //  add evader position to list
     pointList[NR_POINTS-2] = shelfino_position_1;
 
     // add pursuer position to list
     pointList[NR_POINTS-1] = shelfino_position_2;
-    
+
   }
 
   geometry_msgs::msg::Point createPoint(float x, float y)
@@ -308,10 +306,10 @@ private:
 
   void calculateDistanceMatrix()
   {
-    for (int i = 0; i < pointList.size(); i++)
+    for (uint32_t i = 0; i < pointList.size(); i++)
     {
       Point point_i = pointList[i];
-      for (int j = 0; j < pointList.size(); j++)
+      for (uint32_t j = 0; j < pointList.size(); j++)
       {
         Point point_j = pointList[j];
 
@@ -327,13 +325,13 @@ private:
 
   void calculateAdjacencyMatrix()
   {
-    for (int test = 0; test < pointList.size(); test++)
+    for (uint32_t test = 0; test < pointList.size(); test++)
     {
       Point test_point = pointList[test];
       std::cout << '\n';
       std::cout << "Point " << test << ": " << test_point.x << " / " << test_point.y << '\n';
       std::cout << "Distances to other points: ";
-      for (int j = 0; j < pointList.size(); j++)
+      for (uint32_t j = 0; j < pointList.size(); j++)
       {
         std::cout << distance_matrix[test][j] << " / ";
       }
@@ -342,11 +340,11 @@ private:
 
     // loop over each row of distance matrix to find each point's k nearest neighbors
     // int adjacency_matrix[pointList.size()][pointList.size()] = {0};
-    for (int i = 0; i < pointList.size(); i++)
+    for (uint32_t i = 0; i < pointList.size(); i++)
     {
       array<int, K> nearest_neighbors;
       float current_row[pointList.size()];
-      for (int j = 0; j < pointList.size(); j++)
+      for (uint32_t j = 0; j < pointList.size(); j++)
       {
         current_row[j] = distance_matrix[i][j];
       }
@@ -360,7 +358,7 @@ private:
 
         // cout << "used_points_indices: ";
         int index_nearest_neighbor = i;
-        for (int l = 0; l < pointList.size(); l++)
+        for (uint32_t l = 0; l < pointList.size(); l++)
         {
 
           // check if point l is already used as neighbor:
@@ -377,14 +375,14 @@ private:
 
       // test: print nearest points.
       // cout << "Nearest Neighbours Point " << i << ": " << '\n';
-      for (int test3 = 0; test3 < nearest_neighbors.size(); test3++)
+      for (uint32_t test3 = 0; test3 < nearest_neighbors.size(); test3++)
       {
         // cout << nearest_neighbors[test3] << '\n';
       }
       cout << '\n';
 
       // TADA: in nearest_neighbors sind alle punkte die am nächsten zu pointList[i] sind.
-      for (int m = 0; m < pointList.size(); m++)
+      for (uint32_t m = 0; m < pointList.size(); m++)
       {
 
         bool found = (std::find(nearest_neighbors.begin(), nearest_neighbors.end(), m) != nearest_neighbors.end());
@@ -416,6 +414,7 @@ private:
         if (adjacency_matrix[i][j] == 1)
         {
           graph.edges[i].node_ids.push_back(j);
+          graph.edges[i].weights.push_back(distance_matrix[i][j]);
         }
       }
     }
@@ -439,7 +438,7 @@ private:
     // print x
     cout << "X: " << '\n';
     cout << "[";
-    for (int i = 0; i < pointList.size(); i++)
+    for (uint32_t i = 0; i < pointList.size(); i++)
     {
       cout << pointList[i].x << " ";
     }
@@ -449,7 +448,7 @@ private:
     // print y
     cout << "Y: " << '\n';
     cout << "[";
-    for (int i = 0; i < pointList.size(); i++)
+    for (uint32_t i = 0; i < pointList.size(); i++)
     {
       cout << pointList[i].y << " ";
     }
@@ -612,7 +611,7 @@ private:
     else
     {
       cout << "Inflation should have worked: " << '\n';
-      for (int i = 0; i < (*polygon).points.size(); i++)
+      for (uint32_t i = 0; i < (*polygon).points.size(); i++)
       {
         cout << "Point " << i << ": X ";
         cout << (*polygon).points[i].x;
@@ -627,7 +626,7 @@ private:
 
     vector<IntPoint> scaledIntPoints;
 
-    for (int i = 0; i < points32.size(); i++)
+    for (uint32_t i = 0; i < points32.size(); i++)
     {
       IntPoint *intPoint = new IntPoint((points32[i].x * SCALING_FACTOR), (points32[i].y * SCALING_FACTOR));
       scaledIntPoints.push_back(*intPoint);
@@ -639,7 +638,7 @@ private:
   vector<Point32> descalePoints(vector<IntPoint> scaledPoints)
   {
     vector<Point32> descaledPoints32;
-    for (int i = 0; i < scaledPoints.size(); i++)
+    for (uint32_t i = 0; i < scaledPoints.size(); i++)
     {
       Point32 point32;
       point32.x = ((scaledPoints[i].X) / SCALING_FACTOR);
@@ -653,7 +652,7 @@ private:
 
   void roadMapMain(obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
   {
-    for (int i = 0; i < (*msg).obstacles.size(); i++)
+    for (uint32_t i = 0; i < (*msg).obstacles.size(); i++)
     {
       cout << "OBSTACLE " << i << '\n';
       for (int j = 0; j < (*msg).obstacles[i].polygon.points.size(); j++)
@@ -686,7 +685,7 @@ private:
     inflatePolygon((-1 * (INFLATION_PARAMETER * SCALING_FACTOR)), map_borders.get());
     cout << '\n';
     cout << "INFLATE OBSTACLES" << '\n';
-    for (int o = 0; o < (*obstacles).obstacles.size(); o++)
+    for (uint32_t o = 0; o < (*obstacles).obstacles.size(); o++)
     {
       inflatePolygon((INFLATION_PARAMETER * SCALING_FACTOR), &(*obstacles).obstacles[o].polygon);
     }

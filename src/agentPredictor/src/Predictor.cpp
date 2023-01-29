@@ -1,4 +1,5 @@
 #include "Predictor.hpp"
+#include <iostream>
 
 PathEdge::PathEdge(){
 	//...
@@ -48,8 +49,9 @@ uint32_t Predictor::getExpectedNodeId(){
 
 void Predictor::setExpectedNodeId(uint nodeId){
 
-	for (uint32_t i = 0; i < roadmap->edges.size(); i++) {
+	for (uint32_t i = 0; i < roadmap->edges[currentNode.node_id].node_ids.size(); i++) {
 		if(nodeId==roadmap->edges[currentNode.node_id].node_ids[i]){
+			std::cout << "Node "<< nodeId << "is the new expected node with a " << roadmap->edges[currentNode.node_id].weights[i] << " distance"<<std::endl;
 			expectedNode = PathEdge(nodeId,roadmap->edges[currentNode.node_id].weights[i]);
 		}
 	}
@@ -63,11 +65,13 @@ uint32_t Predictor::getExpectedGateId(){
 bool Predictor::predictTargetGate() {
 
 	int validGates = 0;
-	uint32_t tempGate = -1;
+	uint32_t tempGate = 0;
 	std::vector<PathEdge> tempPath;
 
 	uint32_t firstNode = currentNode.node_id;
 	uint32_t secondNode = expectedNode.node_id;
+
+	std::cout << "First node "<< firstNode << ", and second node " << secondNode <<std::endl;
 
 	std::map<uint32_t, GatePath>::iterator it;
 
@@ -77,12 +81,17 @@ bool Predictor::predictTargetGate() {
 			tempGate = path2Gate.gate_id;
 			tempPath = path2Gate.path[firstNode];
 			validGates++;
+			std::cout << "Candidate for gate "<< tempGate <<std::endl;
 		}
 	}
 
 	if(validGates==1){
+		std::cout << "Chosen gate "<< tempGate <<std::endl;
 		predictedGate = tempGate;
 		expectedPath = tempPath;
+	}
+	else{
+		std::cout << "No gate was chosen "<< std::endl;
 	}
 
 	return validGates==1;
@@ -122,7 +131,7 @@ uint32_t Predictor::predictNextNode() {
 	uint32_t nextNode;
 	double bestApproach = -1;
 
-	for (uint32_t i = 0; i < roadmap->edges.size(); i++) {
+	for (uint32_t i = 0; i < roadmap->edges[currentNode.node_id].node_ids.size(); i++) {
 		uint32_t edgeNodeId = roadmap->edges[currentNode.node_id].node_ids[i];
 		geometry_msgs::msg::Point edgeNodePoint = roadmap->nodes[edgeNodeId];
 		geometry_msgs::msg::Point currentNodePoint = roadmap->nodes[currentNode.node_id];
@@ -143,7 +152,7 @@ uint32_t Predictor::predictNextNodeByWindow() {
 	uint32_t nextNode;
 	double bestApproach = -1;
 
-	for (uint32_t i = 0; i < roadmap->edges.size(); i++) {
+	for (uint32_t i = 0; i < roadmap->edges[currentNode.node_id].node_ids.size(); i++) {
 		uint32_t edgeNodeId = roadmap->edges[currentNode.node_id].node_ids[i];
 		geometry_msgs::msg::Point edgeNodePoint = roadmap->nodes[edgeNodeId];
 

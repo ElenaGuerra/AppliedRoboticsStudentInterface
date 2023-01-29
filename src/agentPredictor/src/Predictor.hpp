@@ -50,7 +50,7 @@ private:
 
 	const int kNeighbours = 3;
 	const uint32_t windowSize = 20;
-	const double thresholdCN = 0.5;
+	const double thresholdCN = 0.02;
 	const uint32_t differencesNeed = 3;
 
 	uint32_t RN;
