@@ -27,7 +27,7 @@ Predictor::Predictor(){}
 Predictor::Predictor(graph_msgs::msg::GeometryGraph::SharedPtr globalRoadmap, std::list<uint32_t> gateIndeces) {
 	roadmap = globalRoadmap;
 	gates = gateIndeces;
-	RN = sizeof(roadmap->nodes) / sizeof(geometry_msgs::msg::Point);
+	RN = globalRoadmap->nodes.size();
 
 	for (uint32_t gateId : gates) {
 		GatePath gatePath = findOptimalPath(gateId);
@@ -77,16 +77,22 @@ bool Predictor::predictTargetGate() {
 
 	for (it = gatesOptimalPath.begin(); it != gatesOptimalPath.end(); it++) {
 		GatePath path2Gate = it->second;
-		if (path2Gate.path[firstNode].size()>1 && path2Gate.path[firstNode][1].node_id == secondNode) {
+		if(FLAG_MOCK_GATE && path2Gate.gate_id == mock_target_gate){
+			validGates = 1;
 			tempGate = path2Gate.gate_id;
 			tempPath = path2Gate.path[firstNode];
-			validGates++;
-			std::cout << "Candidate for gate "<< tempGate <<std::endl;
+			std::cout << "To go to gate "<< path2Gate.gate_id << " you go through " << tempPath.size() <<" nodes (" << path2Gate.path[firstNode].size() <<")"<<std::endl;
+		}
+		else if (!FLAG_MOCK_GATE && path2Gate.path[firstNode].size()>1 && path2Gate.path[firstNode][1].node_id == secondNode) {
+				tempGate = path2Gate.gate_id;
+				tempPath = path2Gate.path[firstNode];
+				validGates++;
+				std::cout << "Candidate for gate "<< tempGate << std::endl;
 		}
 	}
 
 	if(validGates==1){
-		std::cout << "Chosen gate "<< tempGate <<std::endl;
+		std::cout << "Chosen gate "<< tempGate << std::endl;
 		predictedGate = tempGate;
 		expectedPath = tempPath;
 	}
@@ -217,6 +223,7 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 
 	bool bestedAll = true;
 	bool failedAll = true;
+
 	std::vector<PathEdge> evaderPath = getPendingPath();
 	std::list<geometry_msgs::msg::Point> persPath;
 
@@ -254,6 +261,7 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 		}
 	}
 
+
 	if (failedAll){
 		// If pursuer didn't win any distance contest -> go to the gate
 		targetNode = predictedGate;
@@ -263,6 +271,7 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 		targetNode = previousTargetNode;
 	}
 	//If it bested all, targetNode already has the desired value
+
 
 	// persRoadmap[targetNode] starts in the target and ends in the persecutor
 	// So we flip while getting the points
@@ -350,7 +359,7 @@ GatePath Predictor::findOptimalPath(uint32_t initialNode) {
 		uint32_t nextNode = shortestUnknownPath(dist, checkedNodes);
 		checkedNodes[nextNode] = true;
 
-		int numEdges = sizeof(roadmap->edges[nextNode].node_ids) / sizeof(uint32_t);
+		int numEdges = roadmap->edges[nextNode].node_ids.size();
 		for (int edgeIndex = 0; edgeIndex < numEdges; edgeIndex++) {
 
 			// The edgeIndex-th edge referes to the edgeIndex-th node_id:
@@ -375,6 +384,7 @@ GatePath Predictor::findOptimalPath(uint32_t initialNode) {
 }
 
 std::vector<PathEdge> Predictor::getPendingPath() {
+	std::cout << "Amount of nodes in expectedPath: " << expectedPath.size() << std::endl;
 	if (expectedPath[0].node_id == currentNode.node_id) {
 		return expectedPath;
 	}

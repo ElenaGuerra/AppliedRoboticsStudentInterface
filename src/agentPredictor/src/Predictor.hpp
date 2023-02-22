@@ -60,8 +60,10 @@ private:
 
 	std::list<geometry_msgs::msg::Point> lastPositions;
 
+  bool FLAG_MOCK_GATE = true;
 	bool FLAG_CURRENTLY_CLOSE = false; // Mark if we already detected that the evader is near the current node
 	uint32_t COUNTER_CHANGE_DETECTED=0;
+	uint32_t mock_target_gate = 96;
 
 	PathEdge currentNode;
 	PathEdge expectedNode;
