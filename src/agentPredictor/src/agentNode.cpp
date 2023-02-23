@@ -70,26 +70,12 @@ public:
 		sub_gates = this->create_subscription<geometry_msgs::msg::PoseArray>(
 				"gate_position", qos, std::bind(&AgentNode::retrieve_gates, this, _1));
 
-		//publisher_ = this->create_publisher<nav_msgs::msg::Path>("shelfino1/plan", 10);
-
 		goal_options_ = rclcpp_action::Client<FollowPath>::SendGoalOptions();
 		goal_options_.result_callback = std::bind(&AgentNode::check_goal, this, _1);
 		client_ptr_ = rclcpp_action::create_client<FollowPath>(this,"shelfino1/follow_path");
 	}
 
 private:
-
-	void print_with_time(const char* msg) {
-		//const char* msg = "Presecutor position retrieved";
-		//print_with_time(msg);
-	    time_t now = time(0);
-	    struct tm tstruct = *localtime(&now);
-
-	    char buf[20];
-	    strftime(buf, sizeof(buf), "%X", &tstruct);
-
-	    RCLCPP_INFO(this->get_logger(), "[AgentNode] %s at %s", msg, buf);
-	}
 
 	void retrieve_persecutor_position_tf(const geometry_msgs::msg::TransformStamped::SharedPtr t) {
 
@@ -224,13 +210,13 @@ private:
 
 	void start_predictor(){
 
-		RCLCPP_INFO(this->get_logger(), "---> start_predictor()");
+		RCLCPP_DEBUG(this->get_logger(), "---> start_predictor()");
 
 		std::list<uint32_t> gateIndeces = identify_gates();
 		predictor_ = new Predictor(roadmap, gateIndeces);
 		FLAG_PREDICTOR_ACTIVE = true;
 
-		RCLCPP_INFO(this->get_logger(), "<--- stop_predictor()");
+		RCLCPP_DEBUG(this->get_logger(), "<--- stop_predictor()");
 	}
 
 	void plan_interception(){
@@ -243,7 +229,6 @@ private:
 		nav_msgs::msg::Path path;
 		path.header.stamp = this->get_clock()->now();
     path.header.frame_id = "map";
-
 
 		persecutor.x = persecutorPosition.transform.translation.x;
 		persecutor.y = persecutorPosition.transform.translation.y;
@@ -268,14 +253,19 @@ private:
 
 	}
 
-	bool check_point_between(geometry_msgs::msg::Point pose_a, geometry_msgs::msg::Point pose_b){
-		bool in_between_x = pose_a.x <= persecutorPosition.transform.translation.x && persecutorPosition.transform.translation.x <= pose_b.x;
-		in_between_x = in_between_x || (pose_b.x <= persecutorPosition.transform.translation.x && persecutorPosition.transform.translation.x <=pose_a.x);
+	bool check_point(geometry_msgs::msg::Point pose){
 
-		bool in_between_y = pose_a.y <= persecutorPosition.transform.translation.y && persecutorPosition.transform.translation.y <= pose_b.y;
-		in_between_y = in_between_y || (pose_b.y <= persecutorPosition.transform.translation.y && persecutorPosition.transform.translation.y <=pose_a.y);
+		float distance_to_pose = std::sqrt(std::pow(pose.x - persecutorPosition.transform.translation.x, 2) + std::pow(pose.y - persecutorPosition.transform.translation.y, 2));
 
-		return in_between_x && in_between_y;
+		return distance_to_pose <=threshold_position;
+	}
+
+	bool check_goal_reached(geometry_msgs::msg::Point pose){
+
+		float distance_to_pose = std::sqrt(std::pow(pose.x - persecutorPosition.transform.translation.x, 2) + std::pow(pose.y - persecutorPosition.transform.translation.y, 2));
+		RCLCPP_DEBUG(this->get_logger(), "Distance: %f", distance_to_pose);
+
+		return distance_to_pose <=threshold_goal;
 	}
 
 	void check_goal(const GoalHandle::WrappedResult& result){
@@ -284,21 +274,33 @@ private:
 					RCLCPP_INFO(this->get_logger(), "Goal reached");
 			}
 			else if (result.code == rclcpp_action::ResultCode::ABORTED){
-					RCLCPP_INFO(this->get_logger(), "Path order expired, sending it again");
-					bool still_path_left = true;
-					while(still_path_left && pose_list.size()>1){
-						pose_list.erase(pose_list.begin());
-						still_path_left = check_point_between(pose_list[0].pose.position, pose_list[1].pose.position);
-					}
+				if(check_goal_reached(pose_list.back().pose.position)){
+						RCLCPP_INFO(this->get_logger(), "Evader is close enough to the gate, the path has been completed");
+				}
+				else {
+						RCLCPP_INFO(this->get_logger(), "Path order expired, sending it again");
+						while(pose_list.size()>1){
+							pose_list.erase(pose_list.begin());
+							if(check_point(pose_list[0].pose.position)){
+								break;
+							}
+						}
 
-					RCLCPP_INFO(this->get_logger(), "Resending the path with %lu steps", pose_list.size());
+						if(pose_list.size()==1){
+								plan_interception();
+						}
+						else{
 
-					nav_msgs::msg::Path path;
-					path.header.stamp = this->get_clock()->now();
-			    path.header.frame_id = "map";
-					path.poses = pose_list;
+							RCLCPP_INFO(this->get_logger(), "Resending the path with %lu steps", pose_list.size());
 
-					send_path_command(path);
+							nav_msgs::msg::Path path;
+							path.header.stamp = this->get_clock()->now();
+					    path.header.frame_id = "map";
+							path.poses = pose_list;
+
+							send_path_command(path);
+						}
+				}
 			}
 			else if (result.code == rclcpp_action::ResultCode::CANCELED){
 					RCLCPP_ERROR(this->get_logger(), "Goal canceled");
@@ -309,7 +311,7 @@ private:
 	}
 
 	void send_path_command(nav_msgs::msg::Path path){
-		RCLCPP_INFO(this->get_logger(), "---> start send_path_command()");
+		RCLCPP_DEBUG(this->get_logger(), "---> start send_path_command()");
 
 		auto path_msg = FollowPath::Goal();
 		path_msg.controller_id = "FollowPath";
@@ -321,8 +323,9 @@ private:
 		}
 
 		client_ptr_->async_send_goal(path_msg, goal_options_);
+		last_send = time(0);
 
-		RCLCPP_INFO(this->get_logger(), "<--- stop send_path_command()");
+		RCLCPP_DEBUG(this->get_logger(), "<--- stop send_path_command()");
 	}
 
 
@@ -335,6 +338,10 @@ private:
 	bool FLAG_EVADER_LOCALIZED = false;
 	bool FLAG_TARGET_GATE_PREDICTED = false;
 	bool FLAG_SENDING_PATH = false;
+
+	time_t last_send;
+	float threshold_position = 0.3;
+	float threshold_goal = 0.8;
 
 	Dubins *dubins_;
 	Predictor *predictor_;

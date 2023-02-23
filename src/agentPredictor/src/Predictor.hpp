@@ -50,7 +50,7 @@ private:
 
 	const int kNeighbours = 3;
 	const uint32_t windowSize = 20;
-	const double thresholdCN = 0.02;
+	const double thresholdCN = 0.2;
 	const uint32_t differencesNeed = 3;
 
 	uint32_t RN;
@@ -60,9 +60,9 @@ private:
 
 	std::list<geometry_msgs::msg::Point> lastPositions;
 
-  bool FLAG_MOCK_GATE = true;
+  bool FLAG_MOCK_GATE = false;
 	bool FLAG_CURRENTLY_CLOSE = false; // Mark if we already detected that the evader is near the current node
-	uint32_t COUNTER_CHANGE_DETECTED=0;
+	uint32_t COUNTER_CHANGE_DETECTED=1;
 	uint32_t mock_target_gate = 96;
 
 	PathEdge currentNode;
@@ -72,7 +72,7 @@ private:
 
 	uint32_t findClosestNode(geometry_msgs::msg::Point position);
 	double distanceToNode(geometry_msgs::msg::Point initPost, geometry_msgs::msg::Point targetPost);
-
+	double distanceBetweenLineAndPoint(geometry_msgs::msg::Point nextPoint);
 	uint32_t shortestUnknownPath(double distFromInit[], bool checkedNodes[]);
 	GatePath findOptimalPath(uint32_t initialNode);
 

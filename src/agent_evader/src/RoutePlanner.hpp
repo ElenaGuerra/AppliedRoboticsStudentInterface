@@ -33,9 +33,6 @@ private:
 	GatePath gateOptimalPath;
 	graph_msgs::msg::GeometryGraph::SharedPtr roadmap;
 
-  bool FLAG_MOCK_GATE = true;
-	uint32_t mock_target_gate = 96;
-
 	uint32_t findClosestNode(geometry_msgs::msg::Point position);
 	double distanceToNode(geometry_msgs::msg::Point initPost, geometry_msgs::msg::Point targetPost);
 	uint32_t shortestUnknownPath(double distFromInit[], bool checkedNodes[]);

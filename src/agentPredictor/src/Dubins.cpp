@@ -73,9 +73,9 @@ void Dubins::dubins_full_path(float originalTh, rclcpp::Time stamp, list<geometr
   else if(pathToFollow.size()==2){
     DubinsStructure temp = dubins_shortest_path(pathToFollow.front().x, pathToFollow.front().y, originalTh, pathToFollow.back().x, pathToFollow.back().y, originalTh, 3);
 
-    addArcWithIntrapoints(pathList, stamp, temp.a1, 100, true);
-    addArcWithIntrapoints(pathList, stamp, temp.a2, 100, false);
-    addArcWithIntrapoints(pathList, stamp, temp.a3, 100, false);
+    addArcWithIntrapoints(pathList, stamp, temp.a1, 50, true);
+    addArcWithIntrapoints(pathList, stamp, temp.a2, 50, false);
+    addArcWithIntrapoints(pathList, stamp, temp.a3, 50, false);
   }
   else if(pathToFollow.size()>2){
 
@@ -92,9 +92,9 @@ void Dubins::dubins_full_path(float originalTh, rclcpp::Time stamp, list<geometr
           float targetTh = chooseEndingOrientation(prevPoint.x, prevPoint.y, node.x, node.y);
           DubinsStructure temp = dubins_shortest_path(prevprevPoint.x, prevprevPoint.y, currentTh, prevPoint.x, prevPoint.y, targetTh, 3);
 
-          addArcWithIntrapoints(pathList, stamp, temp.a1, 100, firstPoint);
-          addArcWithIntrapoints(pathList, stamp, temp.a2, 100, false);
-          addArcWithIntrapoints(pathList, stamp, temp.a3, 100, false);
+          addArcWithIntrapoints(pathList, stamp, temp.a1, 50, firstPoint);
+          addArcWithIntrapoints(pathList, stamp, temp.a2, 50, false);
+          addArcWithIntrapoints(pathList, stamp, temp.a3, 50, false);
           firstPoint = false;
         }
         atleastThirdPoint = true;

@@ -133,23 +133,27 @@ bool Predictor::updatePredictionTargetGate(uint32_t discardedGate) {
 	return predictedGate;
 }
 
-uint32_t Predictor::predictNextNode() {
+uint32_t Predictor::predictNextNode(){
 	uint32_t nextNode;
 	double bestApproach = -1;
 
-	for (uint32_t i = 0; i < roadmap->edges[currentNode.node_id].node_ids.size(); i++) {
-		uint32_t edgeNodeId = roadmap->edges[currentNode.node_id].node_ids[i];
+	std::map<uint32_t, GatePath>::iterator it;
+
+	for (it = gatesOptimalPath.begin(); it != gatesOptimalPath.end(); it++) {
+		std::vector<PathEdge> possiblePath = (it->second).path[currentNode.node_id];
+
+		uint32_t edgeNodeId = possiblePath[1].node_id;
 		geometry_msgs::msg::Point edgeNodePoint = roadmap->nodes[edgeNodeId];
-		geometry_msgs::msg::Point currentNodePoint = roadmap->nodes[currentNode.node_id];
 
 		double currentDistance = distanceToNode(lastPositions.front(), edgeNodePoint);
-		double originalDistance = distanceToNode(currentNodePoint, edgeNodePoint);
+		double originalDistance = distanceToNode(roadmap->nodes[currentNode.node_id], edgeNodePoint);
 		double temp = originalDistance == 0 ? 0 : currentDistance / originalDistance;
 		if (bestApproach == -1 || temp < bestApproach) {
 			bestApproach = temp;
 			nextNode = edgeNodeId;
 		}
 	}
+	std::cout << "Estimated next node: " << nextNode << std::endl;
 
 	return nextNode;
 }
@@ -239,14 +243,15 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 
 		// Distance evader
 		geometry_msgs::msg::Point firstNode = roadmap->nodes[evaderPath[0].node_id];
-		double distEvader = distanceToNode(lastPositions.front(), firstNode);
+		double distEvader = 0;//distanceToNode(lastPositions.front(), firstNode);
 		for (int i = 1; i < numNodes; i++) {
 			distEvader += evaderPath[i].weight;
 		}
 
+
 		// Distance persecutor
 		std::vector<PathEdge> tempPath = persRoadmap.path[targetNode];
-		double distPersec = distanceToNode(persecutor, persNode);
+		double distPersec = 0;//distanceToNode(persecutor, persNode);
 		for (uint32_t i = 0; i < tempPath.size(); i++) {
 			distPersec += tempPath[i].weight;
 		}
@@ -258,6 +263,7 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 		else {
 			failedAll = false;
 			previousTargetNode = targetNode;
+			std::cout << "Can intercept at node: " << previousTargetNode << "Distance from evader was: " << distEvader << "Distance from pursuer was: " <<distPersec<< std::endl;
 		}
 	}
 
@@ -265,6 +271,7 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 	if (failedAll){
 		// If pursuer didn't win any distance contest -> go to the gate
 		targetNode = predictedGate;
+		std::cout << "Can't win in this map. "<< std::endl;
 	}
 	else if (bestedAll){
 		// The interception point is a middle node
@@ -279,7 +286,6 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 		uint32_t nodeToAdd = persRoadmap.path[targetNode][i].node_id;
 		persPath.push_front(roadmap->nodes[nodeToAdd]);
 	}
-	persPath.push_front(persecutor);
 
 	return persPath;
 
@@ -305,8 +311,11 @@ std::list<geometry_msgs::msg::Point> Predictor::towardsEvaderPath(geometry_msgs:
 void Predictor::findEvaderFirstNode(){
 	if(lastPositions.size()!=0){
 		uint32_t id = findClosestNode(lastPositions.back());
+		std::cout<<"We believe evader started at node "<<id<<std::endl;
 		currentNode = PathEdge(id,0);
 	}
+
+
 }
 
 // Private

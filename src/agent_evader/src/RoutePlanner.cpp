@@ -40,14 +40,14 @@ std::list<geometry_msgs::msg::Point> RoutePlanner::retrievePath(geometry_msgs::m
 
 	// gateOptimalPath[targetNode] starts in the gate and ends in the evader
 	// So we flip while getting the points
+	std::cout<<"Path that evader will follow: ";
 	for (uint32_t i = 0; i < gateOptimalPath.path[evaderNodeId].size(); i++) {
 		uint32_t nodeToAdd = gateOptimalPath.path[evaderNodeId][i].node_id;
 		evaderPath.push_back(roadmap->nodes[nodeToAdd]);
-		std::cout<<nodeToAdd<<"<-";
+		std::cout<<nodeToAdd<<"->";
 	}
-	std::cout<<std::endl;
-	//evaderPath.push_front(evader);
-
+	std::cout<<"end!"<<std::endl;
+	
 	return evaderPath;
 }
 

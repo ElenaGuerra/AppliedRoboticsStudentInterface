@@ -62,6 +62,8 @@ public:
 
 		dubins_ = new Dubins();
 
+		sub_pers_pose = this->create_subscription<geometry_msgs::msg::TransformStamped>(
+				"shelfino1/transform", qos, std::bind(&EvaderNode::retrieve_persecutor_position_tf, this, _1));
 		sub_evader_pose = this->create_subscription<geometry_msgs::msg::TransformStamped>(
 				"shelfino2/transform", qos, std::bind(&EvaderNode::retrieve_evader_position_tf, this, _1));
 		sub_roadmap = this->create_subscription<graph_msgs::msg::GeometryGraph>(
@@ -75,6 +77,15 @@ public:
 	}
 
 private:
+
+	void retrieve_persecutor_position_tf(const geometry_msgs::msg::TransformStamped::SharedPtr t) {
+
+		RCLCPP_DEBUG(this->get_logger(), "[EvaderNode] Pursuer found in (%f, %f) th=%f", t->transform.translation.x, t->transform.translation.y, t->transform.rotation.w);
+
+		persecutorPosition.transform.translation.x = t->transform.translation.x;
+		persecutorPosition.transform.translation.y = t->transform.translation.y;
+		persecutorPosition.transform.rotation.w = t->transform.rotation.w;
+	}
 
 	void retrieve_evader_position_tf(const geometry_msgs::msg::TransformStamped::SharedPtr t) {
 		RCLCPP_INFO(this->get_logger(), "[EvaderNode] Evader found in (%f, %f) th=%f", t->transform.translation.x, t->transform.translation.y, t->transform.rotation.w);
@@ -180,15 +191,24 @@ private:
 	bool check_point(geometry_msgs::msg::Point pose){
 
 		float distance_to_pose = std::sqrt(std::pow(pose.x - evaderPosition.transform.translation.x, 2) + std::pow(pose.y - evaderPosition.transform.translation.y, 2));
+		if(distance_to_pose <=threshold_position){
+			RCLCPP_INFO(this->get_logger(), "Pose: (%f, %f) and the Position (%f, %f)", pose.x, evaderPosition.transform.translation.x,pose.y, evaderPosition.transform.translation.y);
+			RCLCPP_INFO(this->get_logger(), "Distance %f (%s)", distance_to_pose, distance_to_pose <=threshold_position?"true":"false");
+		}
 
 		return distance_to_pose <=threshold_position;
 	}
 
-	bool check_goal(geometry_msgs::msg::Point pose){
+	bool check_goal_reached(geometry_msgs::msg::Point pose){
 
 		float distance_to_pose = std::sqrt(std::pow(pose.x - evaderPosition.transform.translation.x, 2) + std::pow(pose.y - evaderPosition.transform.translation.y, 2));
-
 		return distance_to_pose <=threshold_goal;
+	}
+
+	bool check_interception(){
+
+		float distance_to_pose = std::sqrt(std::pow(persecutorPosition.transform.translation.x - evaderPosition.transform.translation.x, 2) + std::pow(persecutorPosition.transform.translation.y - evaderPosition.transform.translation.y, 2));
+		return distance_to_pose <=threshold_interception;
 	}
 
 	void check_goal(const GoalHandle::WrappedResult& result){
@@ -197,15 +217,25 @@ private:
 					RCLCPP_INFO(this->get_logger(), "Goal reached");
 			}
 			else if (result.code == rclcpp_action::ResultCode::ABORTED){
-				if(check_goal(pose_list.back())){
+				if(check_interception()){
+			 		RCLCPP_INFO(this->get_logger(), "Evader has been intercepted!!");
+			 	}
+				else if(check_goal_reached(pose_list.back().pose.position)){
 						RCLCPP_INFO(this->get_logger(), "Evader is close enough to the gate, the path has been completed");
 				}
 				else{
 					RCLCPP_INFO(this->get_logger(), "Path order expired, sending it again");
-					while(pose_list.size()>1){
-						pose_list.erase(pose_list.begin());
-						if(check_point(pose_list[0].pose.position))
-							break;
+					time_t now = time(0);
+					if(difftime(now, last_send)>=0.5){
+						std::vector<geometry_msgs::msg::PoseStamped> copy_pose_list = pose_list;
+						while(pose_list.size()>1){
+							pose_list.erase(pose_list.begin());
+							if(check_point(pose_list[0].pose.position))
+								break;
+						}
+						if(pose_list.size()==1){
+							pose_list = copy_pose_list;
+						}
 					}
 
 					RCLCPP_INFO(this->get_logger(), "Resending the path with %lu steps", pose_list.size());
@@ -239,6 +269,7 @@ private:
 		}
 
 		client_ptr_->async_send_goal(path_msg, goal_options_);
+		last_send = time(0);
 
 		RCLCPP_INFO(this->get_logger(), "<--- stop send_path_command()");
 	}
@@ -250,17 +281,21 @@ private:
 	bool FLAG_ROADMAP_READY = false;
 	bool FLAG_GATE_READY = false;
 
+	time_t last_send;
 	float threshold_position = 0.3;
 	float threshold_goal = 0.6;
+	float threshold_interception= 0.8;
 
 	Dubins *dubins_;
 	RoutePlanner *route_planner_;
 
 	graph_msgs::msg::GeometryGraph::SharedPtr roadmap;
 
+	TransformStamped persecutorPosition;
 	TransformStamped evaderPosition;
 	geometry_msgs::msg::Pose targetGate;
 
+	rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr sub_pers_pose;
 	rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr sub_evader_pose;
 	rclcpp::Subscription<graph_msgs::msg::GeometryGraph>::SharedPtr sub_roadmap;
 	rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr sub_gates;
