@@ -233,7 +233,7 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 
 	uint32_t persNodeId = findClosestNode(persecutor);
 	GatePath persRoadmap = findOptimalPath(persNodeId);
-	geometry_msgs::msg::Point persNode = roadmap->nodes[persNodeId];
+	//geometry_msgs::msg::Point persNode = roadmap->nodes[persNodeId];
 
 	uint32_t targetNode;
 	uint32_t previousTargetNode = predictedGate;
@@ -242,7 +242,7 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 		targetNode = evaderPath[numNodes-1].node_id;
 
 		// Distance evader
-		geometry_msgs::msg::Point firstNode = roadmap->nodes[evaderPath[0].node_id];
+		//geometry_msgs::msg::Point firstNode = roadmap->nodes[evaderPath[0].node_id];
 		double distEvader = 0;//distanceToNode(lastPositions.front(), firstNode);
 		for (int i = 1; i < numNodes; i++) {
 			distEvader += evaderPath[i].weight;
@@ -279,6 +279,8 @@ std::list<geometry_msgs::msg::Point> Predictor::interceptingPath(geometry_msgs::
 	}
 	//If it bested all, targetNode already has the desired value
 
+	//#Workaround
+	targetNode = predictedGate;
 
 	// persRoadmap[targetNode] starts in the target and ends in the persecutor
 	// So we flip while getting the points

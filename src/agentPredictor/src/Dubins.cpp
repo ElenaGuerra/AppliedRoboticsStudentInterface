@@ -16,6 +16,9 @@ DubinsArc::DubinsArc(float x_0, float y_0, float th_0, float curvature, float le
   L=length;
 }
 
+Dubins::Dubins(obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr obstacles_msg){
+  obstacles = obstacles_msg;
+}
 
 DubinsStructure Dubins::dubins_shortest_path(float x0, float y0, float th0, float xf, float yf, float thf, float Kmax) {
 
@@ -32,6 +35,8 @@ DubinsStructure Dubins::dubins_shortest_path(float x0, float y0, float th0, floa
     float L = 0;
     bool firstValidPath=true;
 
+    DubinsStructure final_curve;
+
     float sc_s1 = 0;
     float sc_s2 = 0;
     float sc_s3 = 0;
@@ -42,6 +47,9 @@ DubinsStructure Dubins::dubins_shortest_path(float x0, float y0, float th0, floa
         float sc_s3_c = 0;
         bool ok = primitives(i, sc_th0, sc_thf, sc_Kmax, &sc_s1_c, &sc_s2_c, &sc_s3_c);
 
+        DubinsStructure curve = dubinscurve(x0, y0, th0, sc_s1_c*lambda, sc_s2_c*lambda, sc_s3_c*lambda, ksigns[i][0] * Kmax, ksigns[i][1] * Kmax, ksigns[i][2] * Kmax);
+        //ok = ok && !checkIntersection(curve);
+
         float Lcur = sc_s1_c + sc_s2_c + sc_s3_c;
         if (ok && (Lcur < L || firstValidPath)) {
             firstValidPath = false;
@@ -50,18 +58,11 @@ DubinsStructure Dubins::dubins_shortest_path(float x0, float y0, float th0, floa
             sc_s2 = sc_s2_c;
             sc_s3 = sc_s3_c;
             pidx = i;
+            final_curve = curve;
         }
     }
 
-    float s1 = 0;
-    float s2 = 0;
-    float s3 = 0;
-    if (pidx >= 0) {
-        s1 = sc_s1 * lambda;
-        s2 = sc_s2 * lambda;
-        s3 = sc_s3 * lambda;
-    }
-    return dubinscurve(x0, y0, th0, s1, s2, s3, ksigns[pidx][0] * Kmax, ksigns[pidx][1] * Kmax, ksigns[pidx][2] * Kmax);
+    return final_curve;
 };
 
 void Dubins::dubins_full_path(float originalTh, rclcpp::Time stamp, list<geometry_msgs::msg::Point> pathToFollow, std::vector<geometry_msgs::msg::PoseStamped>& pathList){
@@ -156,6 +157,7 @@ bool Dubins::primitives(int type, float sc_th0, float sc_thf, float sc_Kmax, flo
             *sc_s3 = invK * mod2pi(sc_thf- temp1);
             ok = true;
         }
+
         //ok_str = ok?"true":"false";
         //std::cout << "primitives(): LSL ("<< ok_str <<"): " << std::to_string(*sc_s1) << ", " << std::to_string(*sc_s2) << ", " << std::to_string(*sc_s3) << ": " << std::to_string(*sc_s1+ *sc_s2 + *sc_s3) << std::endl;
         break;
@@ -277,6 +279,65 @@ bool Dubins::primitives(int type, float sc_th0, float sc_thf, float sc_Kmax, flo
     };
 
     return ok;
+}
+
+
+bool Dubins::checkIntersection(DubinsStructure curve){
+
+  bool toReturn = false;
+  if(curve.a1.L!=0) toReturn = toReturn || intersection_seg_arc(curve.a1.x0+(curve.a1.x0-curve.a1.xf)/2, curve.a1.y0+(curve.a1.y0-curve.a1.yf)/2, curve.a1.x0-curve.a1.xf);
+  if(curve.a2.L!=0) toReturn = toReturn || intersection_seg_seg(curve.a2.x0, curve.a2.y0, curve.a2.xf, curve.a2.yf);
+  if(curve.a3.L!=0) toReturn = toReturn || intersection_seg_arc(curve.a3.x0+(curve.a3.x0-curve.a3.xf)/2, curve.a3.y0+(curve.a3.y0-curve.a3.yf)/2, curve.a3.x0-curve.a3.xf);
+
+  return toReturn;
+}
+
+bool Dubins::intersection_seg_seg(float x3, float y3, float x4, float y4){
+  bool toReturn = false;
+
+  for(obstacles_msgs::msg::ObstacleMsg obstacle : obstacles->obstacles){
+    for(uint32_t i = 0; i<obstacle.polygon.points.size(); i++){
+      double x1 = obstacle.polygon.points[i].x;
+      double y1 = obstacle.polygon.points[i].y;
+      double x2 = (i<obstacle.polygon.points.size()-1) ? obstacle.polygon.points[i+1].x : obstacle.polygon.points[0].x;
+      double y2 = (i<obstacle.polygon.points.size()-1) ? obstacle.polygon.points[i+1].x : obstacle.polygon.points[0].y;
+
+      double det = (x4-x3)*(y1-y2) - (x1-x2)*(y4-y3);
+
+      double t = ((y3-y4)*(x1-x3)+(x4-x3)*(y1-y3))/det;
+      double u = ((y1-y2)*(x1-x3)+(x2-x1)*(y1-y3))/det;
+
+      toReturn = toReturn || (0<=t && t<=1) || (0<=u && u<=1);
+    }
+  }
+
+  return toReturn;
+}
+
+bool Dubins::intersection_seg_arc(float xc, float yc, double r){
+  bool toReturn = false;
+
+  for(obstacles_msgs::msg::ObstacleMsg obstacle : obstacles->obstacles){
+    for(uint32_t i = 0; i<obstacle.polygon.points.size(); i++){
+      double x1 = obstacle.polygon.points[i].x;
+      double y1 = obstacle.polygon.points[i].y;
+      double x2 = (i<obstacle.polygon.points.size()-1) ? obstacle.polygon.points[i+1].x : obstacle.polygon.points[0].x;
+      double y2 = (i<obstacle.polygon.points.size()-1) ? obstacle.polygon.points[i+1].x : obstacle.polygon.points[0].y;
+
+      double a = std::pow((x2-x1),2) + std::pow((y2-y1), 2);
+      double b = (x2-x1)*(x1-xc) + (y2-y1)*(y1-yc);
+      double c = std::pow((x1-xc),2)+std::pow((y1-yc),2) - std::pow(r,2);
+
+      if((b*b - a*c)>=0){
+        double t1 = (-b+std::sqrt(b*b - a*c))/a;
+        double t2 = (-b-std::sqrt(b*b - a*c))/a;
+
+        toReturn = toReturn || (0<=t1 && t1<=1) || (0<=t2 && t2<=1);
+      }
+    }
+  }
+
+  return toReturn;
 }
 
 double Dubins::sinc(double x) {

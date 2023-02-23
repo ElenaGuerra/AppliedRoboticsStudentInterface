@@ -14,12 +14,16 @@
 #include "nav_msgs/msg/path.hpp"
 #include "geometry_msgs/msg/point.hpp"
 
+#include "obstacles_msgs/msg/obstacle_array_msg.hpp"
+#include "obstacles_msgs/msg/obstacle_msg.hpp"
+
 using namespace std;
 
 class Dubins {
 
 public:
 
+      Dubins(obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr obstacles);
       DubinsStructure dubins_shortest_path(float x0, float y0, float th0, float xf, float yf, float thf, float Kmax);
       void dubins_full_path(float originalTh, rclcpp::Time stamp, list<geometry_msgs::msg::Point> pathToFollow, std::vector<geometry_msgs::msg::PoseStamped>& pathList);
       void addSinglePoints(std::vector<geometry_msgs::msg::PoseStamped>& pathList, rclcpp::Time stamp, float x, float y, float th);
@@ -27,10 +31,15 @@ public:
 private:
 
       int ksigns[6][3] = { {1,0,1},{-1,0,-1},{1,0,-1},{-1,0,1},{-1,1,-1},{1,-1,1} };
+      obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr obstacles;
+
       float mod2pi(float ang);
       bool primitives(int type, float sc_th0, float sc_thf, float sc_Kmax, float* sc_s1, float* sc_s2, float* sc_s3);
       double sinc(double x);
       DubinsArc circline(DubinsArc c);
+      bool checkIntersection(DubinsStructure curve);
+      bool intersection_seg_seg(float x3, float y3, float x4, float y4);
+      bool intersection_seg_arc(float xc, float yc, double r);
       DubinsArc dubinsarc(float x0, float y0, float th0, float  k, float L);
       DubinsStructure dubinscurve(float x0, float y0, float th0, float s1, float s2, float s3, float k0, float k1, float k2);
       void addArcWithIntrapoints(std::vector<geometry_msgs::msg::PoseStamped>& pathList, rclcpp::Time stamp, DubinsArc a, int num_intrapoints, bool addFirst);

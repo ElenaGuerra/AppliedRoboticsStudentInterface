@@ -28,6 +28,8 @@
 
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include "obstacles_msgs/msg/obstacle_array_msg.hpp"
+#include "obstacles_msgs/msg/obstacle_msg.hpp"
 
 #include "nav_msgs/msg/path.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
@@ -59,8 +61,6 @@ public:
 
 		auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_sensor_data);
 
-		dubins_ = new Dubins();
-
 		sub_pers_pose = this->create_subscription<geometry_msgs::msg::TransformStamped>(
 				"shelfino1/transform", qos, std::bind(&AgentNode::retrieve_persecutor_position_tf, this, _1));
 		sub_evader_pose = this->create_subscription<geometry_msgs::msg::TransformStamped>(
@@ -69,6 +69,8 @@ public:
 				"roadmap", qos, std::bind(&AgentNode::retrieve_roadmap, this, _1));
 		sub_gates = this->create_subscription<geometry_msgs::msg::PoseArray>(
 				"gate_position", qos, std::bind(&AgentNode::retrieve_gates, this, _1));
+		sub_obstacles = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
+				"obstacles", qos, std::bind(&AgentNode::retrieve_obstacles, this, _1));
 
 		goal_options_ = rclcpp_action::Client<FollowPath>::SendGoalOptions();
 		goal_options_.result_callback = std::bind(&AgentNode::check_goal, this, _1);
@@ -116,7 +118,7 @@ private:
 			roadmap = graph_msg;
 			FLAG_ROADMAP_READY = true;
 
-			if(FLAG_GATES_READY && FLAG_ROADMAP_READY){
+			if(FLAG_GATES_READY && FLAG_ROADMAP_READY && FLAG_OBSTACLES_READY){
 				start_predictor();
 			}
 		}
@@ -132,10 +134,25 @@ private:
 				gates = gates_msg;
 				FLAG_GATES_READY = true;
 
-				if(FLAG_GATES_READY && FLAG_ROADMAP_READY){
+				if(FLAG_GATES_READY && FLAG_ROADMAP_READY && FLAG_OBSTACLES_READY){
 					start_predictor();
 				}
 			}
+	}
+
+	void retrieve_obstacles(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr obstacles_msg){
+
+			if(FLAG_OBSTACLES_READY) return;
+
+			RCLCPP_INFO(this->get_logger(), "[AgentNode] Info about the obstacles received.");
+
+			obstacles = obstacles_msg;
+			FLAG_OBSTACLES_READY = true;
+
+			if(FLAG_GATES_READY && FLAG_ROADMAP_READY && FLAG_OBSTACLES_READY){
+				start_predictor();
+			}
+
 	}
 
 	void timer_firstPrediction(){
@@ -213,6 +230,7 @@ private:
 		RCLCPP_DEBUG(this->get_logger(), "---> start_predictor()");
 
 		std::list<uint32_t> gateIndeces = identify_gates();
+		dubins_ = new Dubins(obstacles);
 		predictor_ = new Predictor(roadmap, gateIndeces);
 		FLAG_PREDICTOR_ACTIVE = true;
 
@@ -337,17 +355,20 @@ private:
 	bool FLAG_PREDICTOR_ACTIVE = false;
 	bool FLAG_EVADER_LOCALIZED = false;
 	bool FLAG_TARGET_GATE_PREDICTED = false;
-	bool FLAG_SENDING_PATH = false;
+	bool FLAG_OBSTACLES_READY = false;
 
 	time_t last_send;
 	float threshold_position = 0.3;
 	float threshold_goal = 0.8;
+
+	//int COUNTER_CHANGES_ACCEPTED=1;
 
 	Dubins *dubins_;
 	Predictor *predictor_;
 
 	graph_msgs::msg::GeometryGraph::SharedPtr roadmap;
 	geometry_msgs::msg::PoseArray::SharedPtr gates;
+	obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr obstacles;
 
 	TransformStamped persecutorPosition;
 
@@ -355,6 +376,7 @@ private:
 	rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr sub_evader_pose;
 	rclcpp::Subscription<graph_msgs::msg::GeometryGraph>::SharedPtr sub_roadmap;
 	rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr sub_gates;
+	rclcpp::Subscription<obstacles_msgs::msg::ObstacleArrayMsg>::SharedPtr sub_obstacles;
 
 	rclcpp::TimerBase::SharedPtr one_time_timer_;
 	rclcpp::TimerBase::SharedPtr periodic_timer_;

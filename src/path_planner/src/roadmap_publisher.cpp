@@ -27,7 +27,7 @@ using namespace std;
 using namespace geometry_msgs::msg;
 using namespace clipper;
 
-bool FLAG_LOAD_MOCK_GRAPH = true;
+bool FLAG_LOAD_MOCK_GRAPH = false;
 
 bool flagObstacles = false;
 bool flagMapborders = false;
@@ -59,7 +59,7 @@ public:
   }
 
 private:
-  const static int NR_POINTS = 100;
+  const static int NR_POINTS = 300;
   const static int K = 20;
   constexpr static float INFLATION_PARAMETER = 0.36; // cm
   constexpr static float SCALING_FACTOR = 100;
